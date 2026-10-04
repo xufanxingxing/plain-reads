@@ -12,7 +12,7 @@ Each article is a single self-contained HTML file. Read it online through the li
 
 ## Comments
 
-On the hosted pages, select any text to leave a comment; comments float in the right margin next to the text they refer to. They are stored in Supabase: `supabase/comments.sql` creates the table and the functions that write to it, and the project's publishable key goes in `assets/comments.js`. Without a key, comments stay in the reader's own browser. A downloaded page has no comments.
+On the hosted pages, select any text to highlight it in one of four colours or to leave a comment; comments float in the right margin next to the text they refer to. A reader is asked for a name once, and it is used for everything they write. Highlights and comments are stored in Supabase and shown to every visitor: `supabase/comments.sql` creates the table and the functions that write to it, and the project's publishable key goes in `assets/comments.js`. Without a key, they stay in the reader's own browser. A downloaded page has neither.
 
 ## License
 

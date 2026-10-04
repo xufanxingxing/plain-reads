@@ -1,7 +1,9 @@
-/* plain-reads comments: select text, leave a comment, cards float in the right margin.
+/* plain-reads comments and highlights: select text, then colour it or leave a comment.
+ * Comment cards float in the right margin.
  *
- * A page opts in with <main data-page="some/slug">. Comments are anchored to the
- * selected text (character offsets plus the quoted text, so they survive small edits).
+ * A page opts in with <main data-page="some/slug">. Every note is anchored to the
+ * selected text (character offsets plus the quoted text, so it survives small edits).
+ * A note with no text is a plain highlight.
  */
 (function () {
   'use strict';
@@ -22,6 +24,8 @@
   var WIDE = window.matchMedia('(min-width: 1000px)');
   var MAX = { quote: 4000, body: 2000, name: 40, context: 32 };
   var GAP = 10;
+  var COLORS = ['yellow', 'red', 'green', 'blue'];
+  var COLOR_NAMES = { yellow: '黄色', red: '红色', green: '绿色', blue: '蓝色' };
 
   // ---------------------------------------------------------------- small helpers
   function lsGet(key) { try { return window.localStorage.getItem(key); } catch (e) { return null; } }
@@ -49,15 +53,22 @@
   }
   function safeId(id) { return /^[\w-]+$/.test(String(id)); }
   function calm() { return window.matchMedia('(prefers-reduced-motion: reduce)').matches; }
+  function colorOf(c) { return c && COLORS.indexOf(c.color) !== -1 ? c.color : 'yellow'; }
+  function hasText(c) { return !!(c.body && String(c.body).trim()); }
 
   // ---------------------------------------------------------------- identity
   var SECRET_KEY = 'plain-reads:owner';
   var NAME_KEY = 'plain-reads:name';
+  var ASKED_KEY = 'plain-reads:name-asked';
   var MINE_KEY = 'plain-reads:mine:' + PAGE;
   var secret = lsGet(SECRET_KEY);
   if (!secret) { secret = randomHex(32); lsSet(SECRET_KEY, secret); }
   var mine = jsonGet(MINE_KEY, []);
   function isMine(id) { return !remote || mine.indexOf(id) !== -1; }
+  function remember(id) { mine.push(id); lsSet(MINE_KEY, JSON.stringify(mine)); }
+  // One name for everything this reader writes; asked for once.
+  function myName() { return (lsGet(NAME_KEY) || '').trim().slice(0, MAX.name); }
+  function nameAsked() { return lsGet(ASKED_KEY) === '1' || !!myName(); }
 
   // ---------------------------------------------------------------- storage
   function request(path, body) {
@@ -82,11 +93,15 @@
     add: function (d) {
       return request('rpc/plain_reads_add_comment', {
         p_page: PAGE, p_start: d.start_offset, p_end: d.end_offset, p_quote: d.quote,
-        p_prefix: d.prefix, p_suffix: d.suffix, p_body: d.body, p_author: d.author_name, p_secret: secret
+        p_prefix: d.prefix, p_suffix: d.suffix, p_body: d.body, p_author: d.author_name, p_secret: secret,
+        p_color: d.color
       }).then(oneRow);
     },
     edit: function (id, body) {
       return request('rpc/plain_reads_edit_comment', { p_id: id, p_secret: secret, p_body: body }).then(oneRow);
+    },
+    recolor: function (id, color) {
+      return request('rpc/plain_reads_recolor_comment', { p_id: id, p_secret: secret, p_color: color }).then(oneRow);
     },
     remove: function (id) {
       return request('rpc/plain_reads_delete_comment', { p_id: id, p_secret: secret });
@@ -97,22 +112,31 @@
   function localSave(rows) {
     return lsSet(LOCAL_KEY, JSON.stringify(rows)) ? Promise.resolve() : Promise.reject(new Error('storage'));
   }
+  function localChange(id, change) {
+    var rows = jsonGet(LOCAL_KEY, []), hit = null;
+    rows.forEach(function (r) { if (r.id === id) { change(r); hit = r; } });
+    return hit ? localSave(rows).then(function () { return hit; }) : Promise.reject(new Error('missing'));
+  }
   var localStore = {
     list: function () { return Promise.resolve(jsonGet(LOCAL_KEY, [])); },
     add: function (d) {
       var rows = jsonGet(LOCAL_KEY, []);
       var row = {
         id: randomHex(8), page: PAGE, start_offset: d.start_offset, end_offset: d.end_offset, quote: d.quote,
-        prefix: d.prefix, suffix: d.suffix, body: d.body, author_name: d.author_name,
+        prefix: d.prefix, suffix: d.suffix, body: d.body, author_name: d.author_name, color: d.color,
         created_at: new Date().toISOString(), updated_at: null
       };
       rows.push(row);
       return localSave(rows).then(function () { return row; });
     },
     edit: function (id, body) {
-      var rows = jsonGet(LOCAL_KEY, []), hit = null;
-      rows.forEach(function (r) { if (r.id === id) { r.body = body; r.updated_at = new Date().toISOString(); hit = r; } });
-      return hit ? localSave(rows).then(function () { return hit; }) : Promise.reject(new Error('missing'));
+      return localChange(id, function (r) {
+        if (hasText(r)) r.updated_at = new Date().toISOString();
+        r.body = body;
+      });
+    },
+    recolor: function (id, color) {
+      return localChange(id, function (r) { r.color = color; });
     },
     remove: function (id) {
       return localSave(jsonGet(LOCAL_KEY, []).filter(function (r) { return r.id !== id; })).then(function () { return true; });
@@ -122,9 +146,9 @@
 
   function explain(err) {
     var msg = String((err && err.message) || '');
-    if (/too many/i.test(msg)) return '评论太频繁了，过几分钟再试。';
-    if (/not yours|not found/i.test(msg)) return '这条评论不是在这个浏览器里写的，不能修改。';
-    if (/storage/.test(msg)) return '这个浏览器不让保存，评论没有存下来。';
+    if (/too many/i.test(msg)) return '操作太频繁了，过几分钟再试。';
+    if (/not yours|not found/i.test(msg)) return '这一条不是在这个浏览器里写的，不能修改。';
+    if (/storage/.test(msg)) return '这个浏览器不让保存，没有存下来。';
     return '没有保存成功，请检查网络后再试。';
   }
 
@@ -187,18 +211,50 @@
 
   // ---------------------------------------------------------------- state
   var state = { comments: [], draft: null, active: null, editing: null, editText: '', busy: false, error: '', status: 'loading' };
-  var placed = {};      // id -> true when the comment found its text on the last paint
+  var placed = {};      // id -> true when the note found its text on the last paint
+  var tint = {};        // id -> colour of its highlight
+  var pending = null;   // the selection the toolbar refers to
+  var pressing = false; // a press on the toolbar is under way
+  var dragging = false; // the mouse is down in the text, perhaps selecting
+  var renderQueued = false;
+  var popDismiss = null;
+
+  function byId(id) {
+    for (var i = 0; i < state.comments.length; i++) if (state.comments[i].id === id) return state.comments[i];
+    return null;
+  }
+
+  function button(cls, label, onClick) {
+    var b = el('button', cls, label);
+    b.type = 'button';
+    b.addEventListener('click', function (e) { e.stopPropagation(); onClick(b); });
+    return b;
+  }
+  function dot(color, onPick) {
+    var b = button('cmt-dot', null, function () { onPick(color); });
+    b.setAttribute('data-color', color);
+    b.setAttribute('aria-label', COLOR_NAMES[color] + '高亮');
+    b.title = COLOR_NAMES[color] + '高亮';
+    return b;
+  }
+
   var rail = ui(el('aside', 'cmt-rail'));
   rail.setAttribute('aria-label', '评论');
   var orphans = ui(el('div', 'cmt-inline cmt-orphans'));
-  var pill = ui(el('button', 'cmt-pill', '＋ 评论'));
-  pill.type = 'button';
-  pill.hidden = true;
+  // Shown under a fresh selection: four colours to highlight with, or write a comment.
+  var bar = ui(el('div', 'cmt-bar'));
+  bar.setAttribute('role', 'toolbar');
+  bar.setAttribute('aria-label', '高亮或评论');
+  bar.hidden = true;
+  COLORS.forEach(function (color) { bar.appendChild(dot(color, addHighlight)); });
+  bar.appendChild(el('span', 'cmt-sep'));
+  bar.appendChild(button('cmt-bar-comment', '评论', startDraft));
+  // One small floating panel: the menu of a highlight, or the question for a name.
+  var pop = ui(el('div', 'cmt-pop'));
+  pop.hidden = true;
   var statusChip = ui(el('button', 'cmt-status'));
   statusChip.type = 'button';
   statusChip.hidden = true;
-  var pending = null;   // the selection the pill refers to
-  var pressing = false; // a press on the pill is under way
 
   // ---------------------------------------------------------------- highlights
   function unwrap() {
@@ -234,41 +290,165 @@
     node.parentNode.replaceChild(frag, node);
   }
 
+  // Repainting replaces text nodes, which would drop a selection the reader is
+  // making: note where it is in the page text, and put it back afterwards.
+  function saveSelection() {
+    var sel = window.getSelection();
+    if (!sel || sel.isCollapsed || !sel.rangeCount) return null;
+    var range = sel.getRangeAt(0);
+    if (!root.contains(range.commonAncestorContainer)) return null;
+    var off = offsetsOf(range, textIndex());
+    if (!off) return null;
+    off.backward = !(sel.anchorNode === range.startContainer && sel.anchorOffset === range.startOffset);
+    return off;
+  }
+  // The text node and offset for a position in the page text.
+  function pointAt(idx, pos, isEnd) {
+    var nodes = idx.nodes, lo = 0, hi = nodes.length - 1, mid, key = isEnd ? pos - 1 : pos;
+    if (!nodes.length) return null;
+    while (lo < hi) {
+      mid = (lo + hi + 1) >> 1;
+      if (nodes[mid].start <= key) lo = mid; else hi = mid - 1;
+    }
+    return { node: nodes[lo].node, offset: Math.min(pos - nodes[lo].start, nodes[lo].node.data.length) };
+  }
+  function restoreSelection(saved) {
+    var idx = textIndex(), a = pointAt(idx, saved.start, false), b = pointAt(idx, saved.end, true);
+    var sel = window.getSelection();
+    if (!a || !b || !sel) return;
+    try {
+      if (saved.backward) sel.setBaseAndExtent(b.node, b.offset, a.node, a.offset);
+      else sel.setBaseAndExtent(a.node, a.offset, b.node, b.offset);
+    } catch (e) { /* the selection is a convenience; losing it is not an error */ }
+  }
+
   function paint() {
+    var saved = saveSelection();
     unwrap();
     var idx = textIndex(), items = [], lo = Infinity, hi = -1;
     placed = {};
-    function push(id, r) {
+    tint = {};
+    function push(id, r, color) {
       items.push({ id: id, s: r[0], e: r[1] });
       placed[id] = true;
+      tint[id] = color;
       lo = Math.min(lo, r[0]); hi = Math.max(hi, r[1]);
     }
     state.comments.forEach(function (c) {
       if (!safeId(c.id)) return;
       var r = resolve(c, idx.text);
-      if (r) push(c.id, r);
+      if (r) push(c.id, r, colorOf(c));
     });
-    if (state.draft) push('draft', [state.draft.start_offset, state.draft.end_offset]);
-    if (!items.length) return;
+    if (state.draft) push('draft', [state.draft.start_offset, state.draft.end_offset], colorOf(state.draft));
     idx.nodes.forEach(function (n) {
       var a = n.start, b = a + n.node.data.length;
       if (b <= lo || a >= hi || a === b) return;
       var hits = items.filter(function (it) { return it.s < b && it.e > a; });
       if (hits.length) wrapNode(n.node, a, hits);
     });
+    if (saved) restoreSelection(saved);
+  }
+
+  // A saved highlight takes the id the database gave it, without a repaint.
+  function swapId(from, to) {
+    var marks = marksOf(from);
+    for (var i = 0; i < marks.length; i++) {
+      marks[i].setAttribute('data-ids', marks[i].getAttribute('data-ids').split(' ').map(function (id) {
+        return id === from ? to : id;
+      }).join(' '));
+    }
+    tint[to] = tint[from]; placed[to] = placed[from];
+    delete tint[from]; delete placed[from];
   }
 
   function marksOf(id) { return root.querySelectorAll('mark.cmt-hl[data-ids~="' + id + '"]'); }
+  function anchorOf(id, fallback) {
+    var marks = marksOf(id);
+    return marks.length ? marks[marks.length - 1].getBoundingClientRect() : fallback;
+  }
+
+  // ---------------------------------------------------------------- floating panel
+  // Put a floating element just under a point of the page, kept inside the window.
+  function floatAt(node, centerX, bottom) {
+    var host = document.body.getBoundingClientRect();
+    var left = centerX - node.offsetWidth / 2 - host.left;
+    var max = document.documentElement.clientWidth - host.left - node.offsetWidth - 8;
+    node.style.top = Math.round(bottom - host.top + 8) + 'px';
+    node.style.left = Math.round(Math.max(8 - host.left, Math.min(left, max))) + 'px';
+  }
+
+  function openPop(anchor, content, onDismiss) {
+    closePop();
+    pop.textContent = '';
+    pop.appendChild(content);
+    pop.hidden = false;
+    popDismiss = onDismiss || null;
+    floatAt(pop, anchor.left + anchor.width / 2, anchor.bottom);
+  }
+  // Closing by clicking away or Escape runs onDismiss; quiet skips it.
+  function closePop(quiet) {
+    if (pop.hidden) return;
+    pop.hidden = true;
+    pop.textContent = '';
+    var dismissed = popDismiss;
+    popDismiss = null;
+    if (dismissed && !quiet) dismissed();
+  }
+
+  // Ask for the reader's name, then carry on. Dismissing carries on without a name
+  // and asks again next time.
+  function askName(anchor, done) {
+    var form = el('form', 'cmt-form cmt-ask');
+    form.appendChild(el('p', 'cmt-ask-title', '怎么称呼你？'));
+    var input = field('input', 'cmt-name', myName(), '你的名字', '你的名字', MAX.name);
+    input.type = 'text';
+    input.autocomplete = 'nickname';
+    form.appendChild(input);
+    form.appendChild(el('p', 'cmt-note', '只问这一次，之后的评论和高亮都用这个名字。'));
+    function finish(name) {
+      lsSet(NAME_KEY, name);
+      lsSet(ASKED_KEY, '1');
+      closePop(true);
+      done();
+    }
+    var row = el('div', 'cmt-row');
+    var ok = el('button', 'cmt-primary', '确定');
+    ok.type = 'submit';
+    row.appendChild(ok);
+    row.appendChild(button('cmt-link', '匿名', function () { finish(''); }));
+    form.appendChild(row);
+    form.addEventListener('submit', function (e) { e.preventDefault(); finish(input.value.trim().slice(0, MAX.name)); });
+    openPop(anchor, form, done);
+    input.focus();
+    input.select();
+  }
+
+  // What a click on a plain highlight offers: its author can recolour it, add a
+  // comment to it or remove it; everyone else sees whose it is.
+  function openMenu(c) {
+    var anchor = anchorOf(c.id);
+    if (!anchor) return;
+    var box = el('div', 'cmt-menu');
+    if (isMine(c.id)) {
+      var dots = COLORS.map(function (color) {
+        return dot(color, function (picked) { recolor(c.id, picked); press(); });
+      });
+      var press = function () {
+        dots.forEach(function (b) { b.setAttribute('aria-pressed', String(b.getAttribute('data-color') === colorOf(c))); });
+      };
+      press();
+      dots.forEach(function (b) { box.appendChild(b); });
+      box.appendChild(el('span', 'cmt-sep'));
+      box.appendChild(button('cmt-link', '评论', function () { closePop(true); beginEdit(c); }));
+      box.appendChild(button('cmt-link', '删除', function () { closePop(true); removeComment(c.id); }));
+    } else {
+      box.appendChild(el('span', 'cmt-menu-by', (c.author_name || '匿名') + ' 的高亮'));
+    }
+    openPop(anchor, box, function () { if (state.active === c.id) activate(null); });
+  }
 
   // ---------------------------------------------------------------- cards
   function focusId() { return state.draft ? 'draft' : (state.editing || state.active); }
-
-  function button(cls, label, onClick) {
-    var b = el('button', cls, label);
-    b.type = 'button';
-    b.addEventListener('click', function (e) { e.stopPropagation(); onClick(b); });
-    return b;
-  }
 
   function field(tag, id, value, placeholder, label, max) {
     var f = el(tag, null);
@@ -281,15 +461,8 @@
   }
 
   function composer(opts) {
-    // opts: { id, text, withName, submitLabel, onInput, onSubmit, onCancel }
+    // opts: { id, text, byline, submitLabel, onInput, onSubmit, onCancel }
     var form = el('form', 'cmt-form');
-    var name = null;
-    if (opts.withName) {
-      name = field('input', 'cmt-name', lsGet(NAME_KEY) || '', '你的名字（可不填）', '你的名字', MAX.name);
-      name.type = 'text';
-      name.autocomplete = 'nickname';
-      form.appendChild(name);
-    }
     var input = field('textarea', 'cmt-text-' + opts.id, opts.text, '写下评论…', '评论内容', MAX.body);
     input.rows = 3;
     input.addEventListener('input', function () { opts.onInput(input.value); });
@@ -306,18 +479,22 @@
     row.appendChild(ok);
     row.appendChild(button('cmt-link', '取消', opts.onCancel));
     form.appendChild(row);
-    if (opts.withName) {
-      form.appendChild(el('p', 'cmt-note', remote ? '所有打开这个页面的人都能看到这条评论。' : '只保存在这个浏览器里，别人看不到。'));
+    if (opts.byline) {
+      var by = el('p', 'cmt-note', '以「' + (myName() || '匿名') + '」发表，' + (remote ? '所有访客可见。' : '只保存在这个浏览器里。'));
+      by.appendChild(button('cmt-link cmt-rename', '改名', function (b) {
+        askName(b.getBoundingClientRect(), function () { render(); focusField('cmt-text-' + opts.id); });
+      }));
+      form.appendChild(by);
     }
     function submit() {
       var text = input.value.trim();
       if (!text) { input.focus(); return; }
       if (state.busy) return;
-      opts.onSubmit(text, name ? name.value.trim().slice(0, MAX.name) : '');
+      opts.onSubmit(text);
     }
     form.addEventListener('submit', function (e) { e.preventDefault(); submit(); });
     form.addEventListener('keydown', function (e) {
-      if (e.key === 'Escape') { e.preventDefault(); opts.onCancel(); }
+      if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); opts.onCancel(); }
       else if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); submit(); }
     });
     form.addEventListener('click', function (e) { e.stopPropagation(); });
@@ -325,6 +502,12 @@
   }
 
   function quoteLine(text) { return el('p', 'cmt-quote', text.replace(/\s+/g, ' ')); }
+
+  function beginEdit(c) {
+    state.editing = c.id; state.editText = c.body || ''; state.active = c.id; state.error = '';
+    render();
+    focusField('cmt-text-' + c.id);
+  }
 
   function commentCard(c) {
     var card = ui(el('article', 'cmt-card'));
@@ -336,21 +519,21 @@
     card.appendChild(quoteLine(c.quote));
     if (state.editing === c.id) {
       card.appendChild(composer({
-        id: c.id, text: state.editText, withName: false, submitLabel: '保存',
+        id: c.id, text: state.editText, byline: false, submitLabel: '保存',
         onInput: function (v) { state.editText = v; },
         onSubmit: function (text) { saveEdit(c.id, text); },
-        onCancel: function () { state.editing = null; state.error = ''; render(); }
+        onCancel: function () {
+          state.editing = null; state.error = '';
+          if (!hasText(c)) state.active = null;
+          render();
+        }
       }));
       return card;
     }
     card.appendChild(el('p', 'cmt-body', c.body));
     if (isMine(c.id)) {
       var row = el('div', 'cmt-row cmt-own');
-      row.appendChild(button('cmt-link', '编辑', function () {
-        state.editing = c.id; state.editText = c.body; state.active = c.id; state.error = '';
-        render();
-        focusField('cmt-text-' + c.id);
-      }));
+      row.appendChild(button('cmt-link', '编辑', function () { beginEdit(c); }));
       row.appendChild(button('cmt-link', '删除', function (b) {
         if (b.getAttribute('data-armed')) { removeComment(c.id); return; }
         b.setAttribute('data-armed', '1');
@@ -368,7 +551,7 @@
     card.setAttribute('data-id', 'draft');
     card.appendChild(quoteLine(state.draft.quote));
     card.appendChild(composer({
-      id: 'draft', text: state.draft.body, withName: true, submitLabel: '评论',
+      id: 'draft', text: state.draft.body, byline: true, submitLabel: '评论',
       onInput: function (v) { state.draft.body = v; },
       onSubmit: saveDraft,
       onCancel: function () { state.draft = null; state.error = ''; render(); }
@@ -398,6 +581,8 @@
   }
 
   function render() {
+    // Rebuilding the highlights under a selection in progress would break it.
+    if (dragging) { renderQueued = true; return; }
     paint();
     var old = root.querySelectorAll('.cmt-inline');
     for (var i = 0; i < old.length; i++) old[i].parentNode.removeChild(old[i]);
@@ -414,6 +599,8 @@
     }
     state.comments.forEach(function (c) {
       if (!safeId(c.id)) return;
+      // A plain highlight has no card, unless a comment is being added to it.
+      if (!hasText(c) && state.editing !== c.id) return;
       if (!placed[c.id] || !place(c.id, commentCard(c))) lost.push(c);
     });
     if (state.draft) place('draft', draftCard());
@@ -427,11 +614,16 @@
     showStatus();
   }
 
+  // Each stretch of highlight takes the colour of the focused note if it is part
+  // of it, otherwise of the newest note that covers it.
   function applyFocus() {
     var id = focusId(), i;
     var marks = root.querySelectorAll('mark.cmt-hl');
     for (i = 0; i < marks.length; i++) {
-      marks[i].classList.toggle('is-active', !!id && (' ' + marks[i].getAttribute('data-ids') + ' ').indexOf(' ' + id + ' ') !== -1);
+      var ids = marks[i].getAttribute('data-ids').split(' ');
+      var on = !!id && ids.indexOf(id) !== -1;
+      marks[i].classList.toggle('is-active', on);
+      marks[i].setAttribute('data-color', tint[on ? id : ids[ids.length - 1]] || 'yellow');
     }
     var cards = document.querySelectorAll('.cmt-card');
     for (i = 0; i < cards.length; i++) cards[i].classList.toggle('is-active', cards[i].getAttribute('data-id') === id);
@@ -477,10 +669,14 @@
 
   function activate(id, from) {
     if (state.draft || state.editing) return;
-    state.active = id;
+    var c = id ? byId(id) : null;
+    if (c && c.unsaved) return;
+    state.active = c ? id : null;
     applyFocus();
     layout();
-    if (!id) return;
+    if (!c) { closePop(); return; }
+    if (!hasText(c)) { openMenu(c); return; }
+    closePop();
     var marks = marksOf(id), behavior = calm() ? 'auto' : 'smooth';
     if (from === 'card' && marks.length && !inView(marks[0])) marks[0].scrollIntoView({ behavior: behavior, block: 'center' });
     if (from === 'mark' && !WIDE.matches) {
@@ -492,20 +688,18 @@
   // ---------------------------------------------------------------- actions
   function fail(err) { state.busy = false; state.error = explain(err); render(); }
 
-  function saveDraft(text, name) {
+  function saveDraft(text) {
     var d = state.draft;
-    if (name) lsSet(NAME_KEY, name);
     state.busy = true; state.error = ''; d.body = text;
     render();
     store.add({
       start_offset: d.start_offset, end_offset: d.end_offset, quote: d.quote, prefix: d.prefix, suffix: d.suffix,
-      body: text, author_name: name || '匿名'
+      body: text, author_name: myName() || '匿名', color: colorOf(d)
     }).then(function (row) {
       state.busy = false; state.draft = null;
       if (row && row.id) {
         state.comments.push(row);
-        mine.push(row.id);
-        lsSet(MINE_KEY, JSON.stringify(mine));
+        remember(row.id);
         state.active = row.id;
       }
       render();
@@ -522,6 +716,58 @@
     }, fail);
   }
 
+  // The highlight shows at once; it is replaced by the stored row when the save lands.
+  function addHighlight(color) {
+    var sel = takeSelection();
+    if (!sel) return;
+    var note = {
+      id: 'new' + randomHex(6), page: PAGE, start_offset: sel.start_offset, end_offset: sel.end_offset,
+      quote: sel.quote, prefix: sel.prefix, suffix: sel.suffix, body: '', author_name: '', color: color,
+      created_at: new Date().toISOString(), updated_at: null, unsaved: true
+    };
+    function drop() { state.comments = state.comments.filter(function (c) { return c !== note; }); }
+    function send() {
+      note.author_name = myName() || '匿名';
+      store.add(note).then(function (row) {
+        var at = state.comments.indexOf(note);
+        if (row && row.id && at !== -1 && !byId(row.id)) {
+          remember(row.id);
+          state.comments[at] = row;
+          swapId(note.id, row.id);
+          return;
+        }
+        if (row && row.id) remember(row.id);
+        drop();
+        if (row && row.id && !byId(row.id)) state.comments.push(row);
+        render();
+      }, function (err) {
+        drop();
+        state.error = explain(err);
+        render();
+      });
+    }
+    state.error = '';
+    state.comments.push(note);
+    render();
+    if (nameAsked()) send(); else askName(anchorOf(note.id, sel.rect), send);
+  }
+
+  function recolor(id, color) {
+    var c = byId(id);
+    if (!c || colorOf(c) === color) return;
+    var before = c.color;
+    c.color = color;
+    tint[id] = color;
+    applyFocus();
+    store.recolor(id, color).then(null, function (err) {
+      c.color = before;
+      tint[id] = colorOf(c);
+      state.error = explain(err);
+      applyFocus();
+      showStatus();
+    });
+  }
+
   function removeComment(id) {
     store.remove(id).then(function (removed) {
       if (removed === false) { load(true); return; }
@@ -534,7 +780,9 @@
   function load(quiet) {
     if (!quiet) { state.status = 'loading'; showStatus(); }
     return store.list().then(function (rows) {
-      state.comments = Array.isArray(rows) ? rows : [];
+      var unsaved = state.comments.filter(function (c) { return c.unsaved; });
+      state.comments = (Array.isArray(rows) ? rows : []).concat(unsaved);
+      if (state.active && !byId(state.active)) state.active = null;
       state.status = 'ready'; state.error = '';
       render();
     }, function () {
@@ -573,15 +821,11 @@
 
   function checkSelection() {
     if (pressing) return;
-    if (state.draft || state.busy) { pill.hidden = true; return; }
+    if (state.draft || state.busy) { bar.hidden = true; return; }
     pending = readSelection();
-    if (!pending) { pill.hidden = true; return; }
-    var host = document.body.getBoundingClientRect();
-    pill.hidden = false;
-    var left = pending.rect.right - host.left - pill.offsetWidth / 2;
-    var max = document.documentElement.clientWidth - host.left - pill.offsetWidth - 8;
-    pill.style.top = Math.round(pending.rect.bottom - host.top + 8) + 'px';
-    pill.style.left = Math.round(Math.max(8 - host.left, Math.min(left, max))) + 'px';
+    if (!pending) { bar.hidden = true; return; }
+    bar.hidden = false;
+    floatAt(bar, pending.rect.right, pending.rect.bottom);
   }
 
   var selTimer = 0;
@@ -590,44 +834,68 @@
     selTimer = window.setTimeout(checkSelection, 180);
   }
 
+  // The toolbar's selection, handed to whichever button was pressed.
+  function takeSelection() {
+    var sel = pending;
+    pending = null;
+    bar.hidden = true;
+    var live = window.getSelection();
+    if (live) live.removeAllRanges();
+    return sel;
+  }
+
   function startDraft() {
-    if (!pending) return;
+    var sel = takeSelection();
+    if (!sel) return;
+    closePop();
     state.draft = {
-      start_offset: pending.start_offset, end_offset: pending.end_offset, quote: pending.quote,
-      prefix: pending.prefix, suffix: pending.suffix, body: ''
+      start_offset: sel.start_offset, end_offset: sel.end_offset, quote: sel.quote,
+      prefix: sel.prefix, suffix: sel.suffix, body: '', color: 'yellow'
     };
     state.editing = null; state.error = '';
-    pending = null;
-    pill.hidden = true;
-    var sel = window.getSelection();
-    if (sel) sel.removeAllRanges();
     render();
-    focusField('cmt-text-draft');
+    if (nameAsked()) focusField('cmt-text-draft');
+    else askName(anchorOf('draft', sel.rect), function () { render(); focusField('cmt-text-draft'); });
   }
 
   // ---------------------------------------------------------------- wiring
   function start() {
     document.body.appendChild(rail);
-    document.body.appendChild(pill);
+    document.body.appendChild(bar);
+    document.body.appendChild(pop);
     document.body.appendChild(statusChip);
     document.documentElement.classList.add('has-cmt');
 
-    pill.addEventListener('mousedown', function (e) { e.preventDefault(); });
-    pill.addEventListener('pointerdown', function () { pressing = true; });
+    // A press on the toolbar must not clear the selection, and a tap that does
+    // clear it must not hide the toolbar before the click lands.
+    bar.addEventListener('mousedown', function (e) { e.preventDefault(); });
+    bar.addEventListener('pointerdown', function () { pressing = true; });
     ['pointerup', 'pointercancel'].forEach(function (type) {
       document.addEventListener(type, function () {
         if (pressing) window.setTimeout(function () { pressing = false; selectionSoon(); }, 300);
       });
     });
-    pill.addEventListener('click', startDraft);
     statusChip.addEventListener('click', function () {
       if (state.status === 'error') load(); else { state.error = ''; showStatus(); }
     });
 
+    document.addEventListener('mousedown', function (e) {
+      var t = e.target;
+      if (e.button === 0 && root.contains(t) && !(t.closest && t.closest('[data-cmt-ui]'))) dragging = true;
+    }, true);
+    function released() {
+      if (!dragging) return;
+      dragging = false;
+      if (renderQueued) { renderQueued = false; render(); }
+    }
+    document.addEventListener('mouseup', released, true);
+    window.addEventListener('blur', released);
+
     document.addEventListener('selectionchange', selectionSoon);
     document.addEventListener('mouseup', selectionSoon);
     document.addEventListener('keydown', function (e) {
-      if (e.key === 'Escape' && !pill.hidden) pill.hidden = true;
+      if (e.key !== 'Escape') return;
+      if (!pop.hidden) closePop(); else bar.hidden = true;
     });
 
     document.addEventListener('click', function (e) {
@@ -641,8 +909,9 @@
         if (!ids.length) return;
         var at = ids.indexOf(state.active);
         activate(ids[(at + 1) % ids.length], 'mark');
-      } else if (state.active && !mark) {
-        activate(null);
+      } else if (!mark) {
+        closePop();
+        if (state.active) activate(null);
       }
     });
 
@@ -654,18 +923,19 @@
     if (window.ResizeObserver) new ResizeObserver(relayout).observe(root);
     window.addEventListener('resize', relayout);
     window.addEventListener('load', relayout);
-    var onMode = function () { render(); };
+    var onMode = function () { closePop(); render(); };
     if (WIDE.addEventListener) WIDE.addEventListener('change', onMode); else if (WIDE.addListener) WIDE.addListener(onMode);
 
     var lastLoad = Date.now();
+    function idle() { return !state.draft && !state.editing && !state.busy && pop.hidden; }
     document.addEventListener('visibilitychange', function () {
-      if (document.hidden || state.draft || state.editing || state.busy) return;
+      if (document.hidden || !idle()) return;
       if (Date.now() - lastLoad < 60000) return;
       lastLoad = Date.now();
       load(true);
     });
     window.addEventListener('storage', function (e) {
-      if (!remote && e.key === LOCAL_KEY && !state.draft && !state.editing) load(true);
+      if (!remote && e.key === LOCAL_KEY && idle()) load(true);
     });
 
     load();

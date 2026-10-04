@@ -2,8 +2,18 @@
    Self-contained: its own colour tokens, so it works on any page that opts in. */
 :root {
   --cmt-col: 42em;                          /* width of the page's text column */
-  --cmt-hl: rgba(253, 214, 99, 0.45);
+  --cmt-hl: rgba(253, 214, 99, 0.45);       /* yellow, the default highlight */
   --cmt-hl-active: rgba(250, 186, 20, 0.72);
+  --cmt-red: rgba(244, 128, 128, 0.36);
+  --cmt-red-active: rgba(235, 87, 87, 0.58);
+  --cmt-green: rgba(120, 205, 135, 0.4);
+  --cmt-green-active: rgba(64, 180, 90, 0.6);
+  --cmt-blue: rgba(125, 180, 250, 0.4);
+  --cmt-blue-active: rgba(66, 140, 245, 0.58);
+  --cmt-dot-yellow: #f5c13c;
+  --cmt-dot-red: #ee6a6a;
+  --cmt-dot-green: #57c273;
+  --cmt-dot-blue: #5a9cf4;
   --cmt-card: #ffffff;
   --cmt-ink: #2f2f2c;
   --cmt-muted: #6b6b64;
@@ -17,6 +27,12 @@
   :root:not([data-theme="light"]) {
     --cmt-hl: rgba(250, 204, 21, 0.26);
     --cmt-hl-active: rgba(250, 204, 21, 0.5);
+    --cmt-red: rgba(248, 113, 113, 0.3);
+    --cmt-red-active: rgba(248, 113, 113, 0.55);
+    --cmt-green: rgba(74, 222, 128, 0.24);
+    --cmt-green-active: rgba(74, 222, 128, 0.46);
+    --cmt-blue: rgba(96, 165, 250, 0.3);
+    --cmt-blue-active: rgba(96, 165, 250, 0.55);
     --cmt-card: #2a3a52;
     --cmt-ink: #e2e8f0;
     --cmt-muted: #9fb0c6;
@@ -30,6 +46,12 @@
 :root[data-theme="dark"] {
   --cmt-hl: rgba(250, 204, 21, 0.26);
   --cmt-hl-active: rgba(250, 204, 21, 0.5);
+  --cmt-red: rgba(248, 113, 113, 0.3);
+  --cmt-red-active: rgba(248, 113, 113, 0.55);
+  --cmt-green: rgba(74, 222, 128, 0.24);
+  --cmt-green-active: rgba(74, 222, 128, 0.46);
+  --cmt-blue: rgba(96, 165, 250, 0.3);
+  --cmt-blue-active: rgba(96, 165, 250, 0.55);
   --cmt-card: #2a3a52;
   --cmt-ink: #e2e8f0;
   --cmt-muted: #9fb0c6;
@@ -60,7 +82,13 @@ mark.cmt-hl {
   cursor: pointer;
   transition: background-color 0.15s ease;
 }
+mark.cmt-hl[data-color="red"] { background: var(--cmt-red); }
+mark.cmt-hl[data-color="green"] { background: var(--cmt-green); }
+mark.cmt-hl[data-color="blue"] { background: var(--cmt-blue); }
 mark.cmt-hl.is-active { background: var(--cmt-hl-active); }
+mark.cmt-hl.is-active[data-color="red"] { background: var(--cmt-red-active); }
+mark.cmt-hl.is-active[data-color="green"] { background: var(--cmt-green-active); }
+mark.cmt-hl.is-active[data-color="blue"] { background: var(--cmt-blue-active); }
 
 /* ---------- cards ---------- */
 .cmt-rail {
@@ -71,7 +99,7 @@ mark.cmt-hl.is-active { background: var(--cmt-hl-active); }
   height: 100%;
   pointer-events: none;
 }
-.cmt-card {
+.cmt-card, .cmt-pop {
   box-sizing: border-box;
   min-width: 0;
   padding: 10px 12px;
@@ -85,6 +113,8 @@ mark.cmt-hl.is-active { background: var(--cmt-hl-active); }
   line-height: 1.55;
   text-align: left;
   hyphens: manual;
+}
+.cmt-card {
   cursor: pointer;
   transition: top 0.18s ease, transform 0.18s ease, box-shadow 0.18s ease;
 }
@@ -98,7 +128,7 @@ mark.cmt-hl.is-active { background: var(--cmt-hl-active); }
 .cmt-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; }
 .cmt-author { font-weight: 600; overflow-wrap: anywhere; }
 .cmt-time { color: var(--cmt-muted); font-size: 12px; font-variant-numeric: tabular-nums; }
-.cmt-card p { margin: 6px 0 0; }
+.cmt-card p, .cmt-pop p { margin: 6px 0 0; }
 .cmt-card .cmt-body { white-space: pre-wrap; overflow-wrap: anywhere; }
 .cmt-card .cmt-quote {
   display: none;
@@ -113,12 +143,13 @@ mark.cmt-hl.is-active { background: var(--cmt-hl-active); }
 }
 .cmt-inline .cmt-quote, .cmt-draft .cmt-quote { display: -webkit-box; }
 .cmt-draft .cmt-quote { margin-top: 0; }
-.cmt-card .cmt-note { color: var(--cmt-muted); font-size: 12px; }
-.cmt-card .cmt-error { color: var(--cmt-danger); font-size: 12.5px; }
+.cmt-form .cmt-note { color: var(--cmt-muted); font-size: 12px; overflow-wrap: anywhere; }
+.cmt-form .cmt-error { color: var(--cmt-danger); font-size: 12.5px; }
+.cmt-rename { margin-left: 6px; text-decoration: underline; text-underline-offset: 2px; }
 
 .cmt-row { display: flex; align-items: center; gap: 12px; margin-top: 8px; }
 .cmt-own { margin-top: 4px; }
-.cmt-link, .cmt-primary, .cmt-pill, .cmt-status { cursor: pointer; }
+.cmt-link, .cmt-primary, .cmt-dot, .cmt-bar-comment, .cmt-status { cursor: pointer; }
 .cmt-link {
   padding: 4px 2px;
   background: none;
@@ -139,7 +170,7 @@ mark.cmt-hl.is-active { background: var(--cmt-hl-active); }
   font-weight: 600;
 }
 .cmt-primary:disabled { opacity: 0.6; cursor: default; }
-.cmt-card input, .cmt-card textarea {
+.cmt-form input, .cmt-form textarea {
   display: block;
   box-sizing: border-box;
   width: 100%;
@@ -151,9 +182,11 @@ mark.cmt-hl.is-active { background: var(--cmt-hl-active); }
   border-radius: 8px;
   font: inherit;
 }
-.cmt-card textarea { min-height: 72px; resize: vertical; }
-.cmt-card button:focus-visible, .cmt-card input:focus-visible, .cmt-card textarea:focus-visible,
-.cmt-pill:focus-visible, .cmt-status:focus-visible {
+.cmt-form textarea { min-height: 72px; resize: vertical; }
+.cmt-form > :first-child { margin-top: 0; }
+.cmt-card .cmt-form { margin-top: 8px; }
+.cmt-card button:focus-visible, .cmt-pop button:focus-visible, .cmt-bar button:focus-visible,
+.cmt-form input:focus-visible, .cmt-form textarea:focus-visible, .cmt-status:focus-visible {
   outline: 2px solid var(--cmt-accent);
   outline-offset: 1px;
 }
@@ -167,22 +200,65 @@ mark.cmt-hl.is-active { background: var(--cmt-hl-active); }
 }
 @media (max-width: 999px) {
   .cmt-rail { display: none; }
-  .cmt-card input, .cmt-card textarea { font-size: 16px; }
+  .cmt-form input, .cmt-form textarea { font-size: 16px; }
 }
 
 /* ---------- floating controls ---------- */
-.cmt-pill {
+/* Under a fresh selection: colours to highlight with, and a button to comment. */
+.cmt-bar {
   position: absolute;
   z-index: 30;
-  padding: 8px 13px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 6px 6px 10px;
   background: var(--cmt-ink);
   color: var(--cmt-card);
-  border: 0;
   border-radius: 999px;
   box-shadow: 0 2px 10px var(--cmt-shadow);
   font: 600 13px/1 -apple-system, "PingFang SC", "Noto Sans SC", "Segoe UI", sans-serif;
   white-space: nowrap;
 }
+.cmt-dot {
+  flex: none;
+  box-sizing: border-box;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  background: var(--cmt-dot-yellow);
+  border: 2px solid var(--cmt-card);
+  border-radius: 50%;
+}
+.cmt-dot[data-color="red"] { background: var(--cmt-dot-red); }
+.cmt-dot[data-color="green"] { background: var(--cmt-dot-green); }
+.cmt-dot[data-color="blue"] { background: var(--cmt-dot-blue); }
+.cmt-dot[aria-pressed="true"] { box-shadow: 0 0 0 2px var(--cmt-accent); }
+.cmt-sep { flex: none; width: 1px; height: 16px; background: currentColor; opacity: 0.3; }
+.cmt-bar-comment {
+  padding: 6px 10px;
+  background: none;
+  color: inherit;
+  border: 0;
+  border-radius: 999px;
+  font: inherit;
+}
+@media (pointer: coarse) {
+  .cmt-dot { width: 28px; height: 28px; }
+  .cmt-bar-comment { padding: 9px 12px; }
+}
+
+/* The menu of a highlight, or the question for a name. */
+.cmt-pop {
+  position: absolute;
+  z-index: 35;
+  max-width: calc(100vw - 16px);
+  box-shadow: 0 4px 14px var(--cmt-shadow);
+}
+.cmt-menu { display: flex; align-items: center; gap: 8px; white-space: nowrap; }
+.cmt-menu-by { color: var(--cmt-muted); font-size: 12.5px; }
+.cmt-ask { width: 236px; max-width: 100%; }
+.cmt-ask-title { font-weight: 600; }
+
 .cmt-status {
   position: fixed;
   right: 16px;

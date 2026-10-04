@@ -1,12 +1,13 @@
--- plain-reads: shared comments for the annotated pages.
+-- plain-reads: shared comments and highlights for the annotated pages.
 --
--- Run once in the Supabase SQL Editor. Safe to run again.
+-- Run in the Supabase SQL Editor. Safe to run again, and running it on a
+-- database set up by an earlier version of this file upgrades it in place.
 --
--- Model: anyone can read comments. Writing goes only through the three
--- plain_reads_* functions below; the tables themselves accept no direct
--- insert, update or delete from the API. Each browser keeps a random secret;
--- only its hash is stored, and it is what lets an author edit or delete
--- their own comment later.
+-- Model: anyone can read. Writing goes only through the plain_reads_*
+-- functions below; the tables themselves accept no direct insert, update or
+-- delete from the API. Each browser keeps a random secret; only its hash is
+-- stored, and it is what lets an author change or delete their own row later.
+-- A row with an empty body is a plain highlight; every row has a colour.
 
 create table if not exists public.plain_reads_comments (
   id uuid primary key default gen_random_uuid(),
@@ -16,12 +17,30 @@ create table if not exists public.plain_reads_comments (
   quote text not null check (char_length(quote) between 1 and 4000),
   prefix text not null default '' check (char_length(prefix) <= 64),
   suffix text not null default '' check (char_length(suffix) <= 64),
-  body text not null check (char_length(body) between 1 and 2000),
+  body text not null default ''
+    constraint plain_reads_comments_body_check check (char_length(body) <= 2000),
   author_name text not null check (char_length(author_name) between 1 and 40),
+  color text not null default 'yellow'
+    constraint plain_reads_comments_color_check check (color ~ '^[a-z]{1,16}$'),
   created_at timestamptz not null default now(),
   updated_at timestamptz,
   check (end_offset > start_offset)
 );
+
+-- Upgrade a table made by the first version of this file, which had no colour
+-- and required a body.
+alter table public.plain_reads_comments
+  add column if not exists color text not null default 'yellow';
+alter table public.plain_reads_comments
+  drop constraint if exists plain_reads_comments_color_check;
+alter table public.plain_reads_comments
+  add constraint plain_reads_comments_color_check check (color ~ '^[a-z]{1,16}$');
+alter table public.plain_reads_comments
+  drop constraint if exists plain_reads_comments_body_check;
+alter table public.plain_reads_comments
+  add constraint plain_reads_comments_body_check check (char_length(body) <= 2000);
+alter table public.plain_reads_comments
+  alter column body set default '';
 
 create index if not exists plain_reads_comments_page_idx
   on public.plain_reads_comments (page, created_at);
@@ -53,7 +72,11 @@ create policy "plain_reads_comments: anyone can read"
   to anon, authenticated
   using (true);
 
--- Add a comment. Returns the stored row.
+-- Add a comment, or a plain highlight when the body is empty. Returns the stored row.
+-- The first version of this function took no colour; it is replaced, and a call
+-- that leaves the colour out still works.
+drop function if exists public.plain_reads_add_comment(text, integer, integer, text, text, text, text, text, text);
+
 create or replace function public.plain_reads_add_comment(
   p_page text,
   p_start integer,
@@ -63,7 +86,8 @@ create or replace function public.plain_reads_add_comment(
   p_suffix text,
   p_body text,
   p_author text,
-  p_secret text
+  p_secret text,
+  p_color text default 'yellow'
 )
 returns public.plain_reads_comments
 language plpgsql
@@ -85,7 +109,7 @@ begin
     from public.plain_reads_comment_owners o
    where o.owner_hash = v_hash
      and o.created_at > now() - interval '10 minutes';
-  if v_recent >= 30 then
+  if v_recent >= 60 then
     raise exception 'too many comments, try again later';
   end if;
 
@@ -93,16 +117,17 @@ begin
   select count(*) into v_recent
     from public.plain_reads_comments c
    where c.created_at > now() - interval '1 hour';
-  if v_recent >= 300 then
+  if v_recent >= 600 then
     raise exception 'too many comments, try again later';
   end if;
 
   insert into public.plain_reads_comments
-    (page, start_offset, end_offset, quote, prefix, suffix, body, author_name)
+    (page, start_offset, end_offset, quote, prefix, suffix, body, author_name, color)
   values
     (btrim(p_page), p_start, p_end, p_quote,
      coalesce(p_prefix, ''), coalesce(p_suffix, ''),
-     btrim(p_body), coalesce(nullif(btrim(p_author), ''), '匿名'))
+     btrim(coalesce(p_body, '')), coalesce(nullif(btrim(p_author), ''), '匿名'),
+     coalesce(nullif(btrim(p_color), ''), 'yellow'))
   returning * into v_row;
 
   insert into public.plain_reads_comment_owners (comment_id, owner_hash)
@@ -112,7 +137,8 @@ begin
 end;
 $$;
 
--- Edit your own comment. Returns the updated row.
+-- Edit the text of your own comment. Returns the updated row. Giving a plain
+-- highlight its first text does not count as an edit.
 create or replace function public.plain_reads_edit_comment(
   p_id uuid,
   p_secret text,
@@ -127,8 +153,40 @@ declare
   v_row public.plain_reads_comments;
 begin
   update public.plain_reads_comments c
-     set body = btrim(p_body),
-         updated_at = now()
+     set body = btrim(coalesce(p_body, '')),
+         updated_at = case when c.body = '' then c.updated_at else now() end
+   where c.id = p_id
+     and exists (
+       select 1
+         from public.plain_reads_comment_owners o
+        where o.comment_id = c.id
+          and o.owner_hash = encode(sha256(convert_to(coalesce(p_secret, ''), 'UTF8')), 'hex')
+     )
+  returning c.* into v_row;
+
+  if v_row.id is null then
+    raise exception 'comment not found or not yours';
+  end if;
+  return v_row;
+end;
+$$;
+
+-- Change the colour of your own highlight. Returns the updated row.
+create or replace function public.plain_reads_recolor_comment(
+  p_id uuid,
+  p_secret text,
+  p_color text
+)
+returns public.plain_reads_comments
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_row public.plain_reads_comments;
+begin
+  update public.plain_reads_comments c
+     set color = p_color
    where c.id = p_id
      and exists (
        select 1
@@ -168,13 +226,15 @@ begin
 end;
 $$;
 
-revoke all on function public.plain_reads_add_comment(text, integer, integer, text, text, text, text, text, text) from public;
+revoke all on function public.plain_reads_add_comment(text, integer, integer, text, text, text, text, text, text, text) from public;
 revoke all on function public.plain_reads_edit_comment(uuid, text, text) from public;
+revoke all on function public.plain_reads_recolor_comment(uuid, text, text) from public;
 revoke all on function public.plain_reads_delete_comment(uuid, text) from public;
 
-grant execute on function public.plain_reads_add_comment(text, integer, integer, text, text, text, text, text, text) to anon, authenticated;
+grant execute on function public.plain_reads_add_comment(text, integer, integer, text, text, text, text, text, text, text) to anon, authenticated;
 grant execute on function public.plain_reads_edit_comment(uuid, text, text) to anon, authenticated;
+grant execute on function public.plain_reads_recolor_comment(uuid, text, text) to anon, authenticated;
 grant execute on function public.plain_reads_delete_comment(uuid, text) to anon, authenticated;
 
--- Make the new table and functions visible to the API right away.
+-- Make the table, its columns and the functions visible to the API right away.
 notify pgrst, 'reload schema';
