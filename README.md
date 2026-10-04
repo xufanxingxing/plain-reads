@@ -1,15 +1,15 @@
 # plain-reads
 
-技术文章的解读版。原文一字不改，每个逻辑段落后面加一个虚线注释框，依次是：这段在说什么、术语、翻译、例子。目标是从头到尾读一遍就能看懂，不用另外查资料。
+Annotated editions of technical articles. The original text is left untouched; after each logical paragraph there is a dashed annotation box with four parts: what the passage is doing, terms, a Chinese translation, and an example. The goal is to read an article once, top to bottom, and understand it without looking anything up.
 
-每个文件都是单个 HTML，下载后用浏览器直接打开即可。
+Each article is a single self-contained HTML file. Read it online through the links below, or download it and open it in a browser.
 
-## 目录
+## Contents
 
-| 文章 | 原文 | 作者 | 许可 |
+| Article | Source | Author | License |
 |---|---|---|---|
-| [Reward Modeling](rlhf-book/05-reward-models.html) | [RLHF Book 第 5 章](https://rlhfbook.com/c/05-reward-models) | Nathan Lambert | [CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/) |
+| [Reward Modeling](https://xufanxingxing.github.io/plain-reads/rlhf-book/05-reward-models.html) | [RLHF Book, Chapter 5](https://rlhfbook.com/c/05-reward-models) | Nathan Lambert | [CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/) |
 
-## 许可
+## License
 
-每篇解读版沿用原文的许可，署名、原文链接和改动说明写在页面页脚。新增的中文注释、翻译、总结和术语表按同一许可共享。
+Each annotated edition keeps the license of its source. Attribution, a link to the original, and a note on what was changed are in the footer of each page. The added annotations, translations, summaries, and glossaries are shared under the same license.
