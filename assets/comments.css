@@ -1,0 +1,200 @@
+/* plain-reads comments: highlights in the text, cards floating in the right margin.
+   Self-contained: its own colour tokens, so it works on any page that opts in. */
+:root {
+  --cmt-col: 42em;                          /* width of the page's text column */
+  --cmt-hl: rgba(253, 214, 99, 0.45);
+  --cmt-hl-active: rgba(250, 186, 20, 0.72);
+  --cmt-card: #ffffff;
+  --cmt-ink: #2f2f2c;
+  --cmt-muted: #6b6b64;
+  --cmt-line: #dcdcd4;
+  --cmt-shadow: rgba(60, 64, 67, 0.24);
+  --cmt-accent: #0b57d0;
+  --cmt-on-accent: #ffffff;
+  --cmt-danger: #b3261e;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --cmt-hl: rgba(250, 204, 21, 0.26);
+    --cmt-hl-active: rgba(250, 204, 21, 0.5);
+    --cmt-card: #2a3a52;
+    --cmt-ink: #e2e8f0;
+    --cmt-muted: #9fb0c6;
+    --cmt-line: #47566e;
+    --cmt-shadow: rgba(0, 0, 0, 0.5);
+    --cmt-accent: #8ab4f8;
+    --cmt-on-accent: #0f1b2d;
+    --cmt-danger: #f2a39b;
+  }
+}
+:root[data-theme="dark"] {
+  --cmt-hl: rgba(250, 204, 21, 0.26);
+  --cmt-hl-active: rgba(250, 204, 21, 0.5);
+  --cmt-card: #2a3a52;
+  --cmt-ink: #e2e8f0;
+  --cmt-muted: #9fb0c6;
+  --cmt-line: #47566e;
+  --cmt-shadow: rgba(0, 0, 0, 0.5);
+  --cmt-accent: #8ab4f8;
+  --cmt-on-accent: #0f1b2d;
+  --cmt-danger: #f2a39b;
+}
+
+[hidden] { display: none !important; }
+
+/* Room for the margin: once the window can hold column + rail, keep the column
+   centred if there is space, otherwise slide it left just enough. */
+body { position: relative; }
+@media (min-width: 1000px) {
+  body {
+    margin-left: max(0px, min(calc((100% - var(--cmt-col) - 32px) / 2), calc(100% - var(--cmt-col) - 32px - 304px)));
+    margin-right: 0;
+  }
+}
+
+/* ---------- highlights ---------- */
+mark.cmt-hl {
+  background: var(--cmt-hl);
+  color: inherit;
+  border-radius: 2px;
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+mark.cmt-hl.is-active { background: var(--cmt-hl-active); }
+
+/* ---------- cards ---------- */
+.cmt-rail {
+  position: absolute;
+  top: 0;
+  left: calc(100% + 8px);
+  width: 272px;
+  height: 100%;
+  pointer-events: none;
+}
+.cmt-card {
+  box-sizing: border-box;
+  min-width: 0;
+  padding: 10px 12px;
+  background: var(--cmt-card);
+  color: var(--cmt-ink);
+  border: 1px solid var(--cmt-line);
+  border-radius: 10px;
+  font-family: -apple-system, "PingFang SC", "Noto Sans SC", "Segoe UI", sans-serif;
+  font-size: 13.5px;
+  font-style: normal;
+  line-height: 1.55;
+  text-align: left;
+  hyphens: manual;
+  cursor: pointer;
+  transition: top 0.18s ease, transform 0.18s ease, box-shadow 0.18s ease;
+}
+.cmt-rail .cmt-card { position: absolute; left: 0; right: 0; pointer-events: auto; }
+.cmt-card.is-active { box-shadow: 0 4px 14px var(--cmt-shadow); cursor: default; }
+.cmt-rail .cmt-card.is-active { transform: translateX(-10px); }
+@media (prefers-reduced-motion: reduce) {
+  .cmt-card, mark.cmt-hl { transition: none; }
+}
+
+.cmt-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; }
+.cmt-author { font-weight: 600; overflow-wrap: anywhere; }
+.cmt-time { color: var(--cmt-muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.cmt-card p { margin: 6px 0 0; }
+.cmt-card .cmt-body { white-space: pre-wrap; overflow-wrap: anywhere; }
+.cmt-card .cmt-quote {
+  display: none;
+  padding-left: 8px;
+  border-left: 3px solid var(--cmt-hl-active);
+  color: var(--cmt-muted);
+  font-size: 12.5px;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+.cmt-inline .cmt-quote, .cmt-draft .cmt-quote { display: -webkit-box; }
+.cmt-draft .cmt-quote { margin-top: 0; }
+.cmt-card .cmt-note { color: var(--cmt-muted); font-size: 12px; }
+.cmt-card .cmt-error { color: var(--cmt-danger); font-size: 12.5px; }
+
+.cmt-row { display: flex; align-items: center; gap: 12px; margin-top: 8px; }
+.cmt-own { margin-top: 4px; }
+.cmt-link, .cmt-primary, .cmt-pill, .cmt-status { cursor: pointer; }
+.cmt-link {
+  padding: 4px 2px;
+  background: none;
+  border: 0;
+  border-radius: 4px;
+  color: var(--cmt-muted);
+  font: inherit;
+  font-size: 12.5px;
+}
+.cmt-link:hover { color: var(--cmt-ink); }
+.cmt-primary {
+  padding: 6px 16px;
+  background: var(--cmt-accent);
+  color: var(--cmt-on-accent);
+  border: 0;
+  border-radius: 999px;
+  font: inherit;
+  font-weight: 600;
+}
+.cmt-primary:disabled { opacity: 0.6; cursor: default; }
+.cmt-card input, .cmt-card textarea {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  margin-top: 8px;
+  padding: 6px 8px;
+  background: transparent;
+  color: inherit;
+  border: 1px solid var(--cmt-line);
+  border-radius: 8px;
+  font: inherit;
+}
+.cmt-card textarea { min-height: 72px; resize: vertical; }
+.cmt-card button:focus-visible, .cmt-card input:focus-visible, .cmt-card textarea:focus-visible,
+.cmt-pill:focus-visible, .cmt-status:focus-visible {
+  outline: 2px solid var(--cmt-accent);
+  outline-offset: 1px;
+}
+
+/* Narrow screens have no margin to float in: cards sit under the paragraph they belong to. */
+.cmt-inline { display: grid; gap: 8px; margin: 0.9em 0 1.5em; }
+.cmt-orphans-title {
+  margin: 0;
+  color: var(--cmt-muted);
+  font: 12.5px/1.5 -apple-system, "PingFang SC", "Noto Sans SC", "Segoe UI", sans-serif;
+}
+@media (max-width: 999px) {
+  .cmt-rail { display: none; }
+  .cmt-card input, .cmt-card textarea { font-size: 16px; }
+}
+
+/* ---------- floating controls ---------- */
+.cmt-pill {
+  position: absolute;
+  z-index: 30;
+  padding: 8px 13px;
+  background: var(--cmt-ink);
+  color: var(--cmt-card);
+  border: 0;
+  border-radius: 999px;
+  box-shadow: 0 2px 10px var(--cmt-shadow);
+  font: 600 13px/1 -apple-system, "PingFang SC", "Noto Sans SC", "Segoe UI", sans-serif;
+  white-space: nowrap;
+}
+.cmt-status {
+  position: fixed;
+  right: 16px;
+  bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+  z-index: 40;
+  max-width: min(320px, calc(100vw - 32px));
+  padding: 8px 14px;
+  background: var(--cmt-card);
+  color: var(--cmt-ink);
+  border: 1px solid var(--cmt-line);
+  border-radius: 999px;
+  box-shadow: 0 2px 10px var(--cmt-shadow);
+  font: 13px/1.4 -apple-system, "PingFang SC", "Noto Sans SC", "Segoe UI", sans-serif;
+  text-align: left;
+}
